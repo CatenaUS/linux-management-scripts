@@ -1,0 +1,57 @@
+#!/bin/bash
+################################################################################
+###
+### GIT SETUP SCRIPT
+###
+### This setup script configured GIT to have a number of extra easy options available
+###
+### Author: Sven Olaf Oostenbrink <sven.oostenbrink@catenamedia.com> <so.oostenbrink@gmail.com>
+###
+################################################################################
+
+
+
+NAME=$1
+EMAIL=$2
+
+if [ -z "$NAME" ]; then
+        echo Please specify a name
+        echo Usage: git-setup NAME EMAIL
+        exit 1;
+fi
+
+if [ -z $EMAIL ]; then
+        echo Please specify an email
+        echo Usage: git-setup NAME EMAIL
+        exit 1;
+fi
+
+git config --global alias.co checkout
+git config --global alias.br branch -v
+git config --global alias.co checkout
+git config --global alias.ci commit
+git config --global alias.st status
+git config --global alias.unstage 'reset HEAD --'
+git config --global alias.last 'log -1 HEAD'
+git config --global alias.visual '!gitk'
+#it config --global alias.uncommit 'reset --hard HEAD^'
+git config --global alias.uncommit 'reset HEAD^'
+
+git config --global core.editor vim
+git config --global alias.last 'cat-file commit HEAD'
+
+git config --global color.branch auto
+git config --global color.diff auto
+git config --global color.interactive auto
+git config --global color.status auto
+
+git config --global format.pretty oneline
+git config --global core.excludesfile ~/.gitignore_global
+
+git config --global push.default matching
+git config --global credential.helper cache
+git config --global alias.lg "log --color --graph --pretty=format:'%Cred%h%Creset -%C(yellow)%d%Creset %s %Cgreen(%cr)%C(bold blue)<%an>%Creset' --abbrev-commit"
+
+git config --global user.name "$NAME"
+git config --global user.email $EMAIL
+

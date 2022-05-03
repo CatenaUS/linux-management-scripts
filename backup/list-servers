@@ -1,0 +1,7 @@
+#!/bin/bash
+
+SERVERS="s1.servers.catenamedia.com s2.servers.catenamedia.com s3.servers.catenamedia.com";
+
+FOR SERVER IN $SERVERS do; 
+	echo $SERVER
+done

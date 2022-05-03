@@ -1,0 +1,153 @@
+#!/bin/bash
+
+################################################################################
+###
+### SETUP SCRIPT
+###
+### This setup script perform a setup for the specified server
+###
+### Author: Sven Olaf Oostenbrink <sven.oostenbrink@catenamedia.com> <so.oostenbrink@gmail.com>
+###
+################################################################################
+
+
+
+DEFAULT_PASSWORD="nX15/Qc410"
+IP=$1;
+HOSTNAME=$2;
+PASSWORD=$3;
+WORDPRESS_DOMAIN=$4;
+
+USERS="sven"
+
+if [ -z $(which sshpass) ]; then
+        echo Required dependancy "sshpass" is not found, installing now. If required, please enter your sudo password.
+        sudo apt-get install sshpass
+fi
+
+if [ -z $IP ]; then
+        echo Please specify an IP
+        echo Usage: ubuntu-setup-server IP HOSTNAME PASSWORD \[WORDPRESS_DOMAIN\]
+        exit 1;
+fi
+
+if [ -z $HOSTNAME ]; then
+        echo Please specify a hostname
+        echo Usage: ubuntu-setup-server IP HOSTNAME PASSWORD \[WORDPRESS_DOMAIN\]
+        exit 1;
+fi
+
+if [ -z $PASSWORD ]; then
+        echo Please specify a password
+        echo Usage: ubuntu-setup-server IP HOSTNAME PASSWORD \[WORDPRESS_DOMAIN\]
+        exit 1;
+fi
+
+
+
+### Ensure the specified hostname is removed from known_hosts file in case it already exists (this would cause a bunch of SSH validation errors and this hostname WILL be new)
+echo Removing server from known_hosts file
+ssh-keygen -f "/home/$USER/.ssh/known_hosts" -R $IP; 
+ssh-keygen -f "/home/$USER/.ssh/known_hosts" -R [$IP]:40220
+ssh-keygen -f "/home/$USER/.ssh/known_hosts" -R [$HOSTNAME]:40220
+ssh-keygen -f "/home/$USER/.ssh/known_hosts" -R [$HOSTNAME.catenamedia.com]:40220
+
+
+
+### Run SSH login tests. Test password and provider requiring an immediate password update issues
+### Run a second test connection to see if the current password is still valid. If it is not, then the password was changed, and the script should run again with a new password
+echo "Running primary SSH access test to check password and test for possible \"Must change password at login\" issues..."
+SSHPASS="$PASSWORD" sshpass -e ssh -p22 -oStrictHostKeyChecking=no -t root@$IP true
+
+if [ $? -ne 0 ]; then
+        echo SSH failed, possibly the specified password $PASSWORD is invalid?
+        exit 127
+fi
+
+echo "Running secondary SSH test to confirm password hasn't changed"
+SSHPASS="$PASSWORD" sshpass -e ssh -p22 root@$IP true
+
+if [ $? -ne 0 ]; then
+        echo "Secundary SSH test failed, which is VERY LIKELY (but maybe not?) due to changed root user password. The script will automatically restart and try to run with the "rootroot" password. If this fails because the issue is not a changed root password, well, then have fun figuring out what went wrong..."
+        ubuntu-setup-server $IP $HOSTNAME $DEFAULT_PASSWORD $WORDPRESS_DOMAIN;
+        exit 1
+fi
+
+
+
+### Test if this is an ubuntu server
+echo Testing if server is Ubuntu
+UBUNTU=$(echo "$PASSWORD" | sshpass ssh -p22 root@$IP "grep -i ubuntu /etc/issue");
+
+if [ -z "$UBUNTU" ]; then
+        echo Server $IP is not an ubuntu server!
+        exit 2
+fi
+
+
+
+### Test ubuntu version
+echo Testing for Ubuntu 14 which requires an update
+OLD=$(echo "$PASSWORD" | sshpass ssh -p22 root@$IP "grep -i 14 /etc/issue");
+
+if [ "$OLD" ]; then
+        echo Server $IP is running Ubuntu 14, trying to upgrade. 
+        echo "$PASSWORD" | sshpass ssh root@$IP "apt-get update; apt-get -y dist-upgrade; do-release-upgrade -f DistUpgradeViewNonInteractive; reboot"
+        echo Server $IP has been upgraded to 16.04 and is now rebooting. Script will sleep 120 seconds and retry the setup
+        sleep 60
+        ubuntu-setup-server $IP $HOSTNAME $PASSWORD $WORDPRESS_DOMAIN;
+        exit 4
+fi
+
+
+
+### Fix SSH locale problems
+echo Fixing possible SSH locale problems by not allowing other locales
+echo "$PASSWORD" | sshpass ssh -p22 root@$IP "cp /etc/ssh/sshd_config /etc/ssh/sshd_config~; sed -i -e 's/AcceptEnv LANG LC_*/#AcceptEnv LANG LC_*/' /etc/ssh/sshd_config; service ssh restart"
+
+
+
+### Copy setup script
+echo Copying the ubuntu-setup-script to server $IP
+if [ $WORDPRESS_DOMAIN ]; then
+        echo "$PASSWORD" | sshpass scp -P22 ~/bin/ubuntu-setup-script ~/bin/ubuntu-setup-csf ~/bin/ubuntu-setup-wordpress root@$IP:/root
+
+else
+        echo "$PASSWORD" | sshpass scp -P22 ~/bin/ubuntu-setup-script ~/bin/ubuntu-setup-csf root@$IP:/root
+fi
+
+
+
+### Execute setup script and then cleanup
+echo Running ubuntu-setup-script on server $IP
+SSHPASS="$PASSWORD" sshpass -e ssh -p22 -t root@$IP "chmod 750 /root/ubuntu-setup-script; /root/ubuntu-setup-script "$HOSTNAME" "$DEFAULT_PASSWORD" "$WORDPRESS_DOMAIN"; rm /root/ubuntu-setup-script; /root/ubuntu-setup-scrip"
+
+
+
+### Install SSH keys for all users
+echo Installing SSH keys now
+
+for USER in $USERS; do
+	echo Installing SSH keys for user "$USER"
+        echo "$DEFAULT_PASSWORD" | sshpass ssh-copy-id -f -i ~/.ssh/id_rsa_$USER.pub -p 40220 $USER@$IP
+done
+
+
+
+### Install and setup ensure-services script
+echo Installing "ensure-services" script
+echo "$DEFAULT_PASSWORD" | sshpass scp -P 40220 ~/bin/ensure-services toolkit@$IP:
+echo "$DEFAULT_PASSWORD" | sshpass ssh -p 40220 toolkit@$IP sudo mv ensure-services /bin \; sudo chown root:root /bin/ensure-services \; sudo chmod 750 /bin/ensure-services
+echo '* *     * * *   root    /bin/ensure-services >> /var/log/ensure_services 2>&1' | SSHPASS="$DEFAULT_PASSWORD" sshpass -e ssh -p 40220 toolkit@$IP sudo tee -a /etc/crontab
+
+
+
+### Test connect to server
+echo Running final server test
+SSHPASS="$DEFAULT_PASSWORD" sshpass -e ssh -oStrictHostKeyChecking=no -t -p 40220 toolkit@$HOSTNAME.ingiga.com uptime
+
+if [ $? -ne 0 ]; then
+        echo Final SSH test failed!
+        exit 255
+fi
+
